@@ -10,11 +10,15 @@
 - 显示服务可用状态、区域信息、延迟和 HTTP 状态
 - 适合作为 Egern 面板中的单独检测模块使用
 
-当前脚本内包含的检测项目以代码实现为准，初始版已覆盖：
+当前脚本内包含的检测项目以代码实现为准，目前已覆盖：
 
-- YouTube
+- YouTube Premium
+- Gemini
+- Claude
 - Netflix
 - Disney+
+- TikTok
+- Spotify
 - ChatGPT Web
 - ChatGPT App
 - Hulu(US)

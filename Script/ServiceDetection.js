@@ -171,11 +171,15 @@ async function sd_req(url, opts = {}) {
 }
 
 const SD_I18N = {
-  youTube: "YouTube",
+  youTube: "YouTube Premium",
   chatgpt: "ChatGPT Web",
   chatgpt_app: "ChatGPT App",
+  gemini: "Gemini",
+  claude: "Claude",
   netflix: "Netflix",
   disney: "Disney+",
+  tiktok: "TikTok",
+  spotify: "Spotify",
   huluUS: "Hulu(US)",
   huluJP: "Hulu(JP)",
   hbo: "Max(HBO)"
@@ -187,6 +191,23 @@ const SD_TESTS = {
     if (!r.ok) return mkRes(SD_I18N.youTube, r, false, t("fail"));
     const cc = (r.data.match(/\"countryCode\":\"([A-Z]{2})\"/)?.[1]) || "US";
     return mkRes(SD_I18N.youTube, r, true, "", cc);
+  },
+  gemini: async () => {
+    const r = await sd_req("https://gemini.google.com/app");
+    if (!r.ok) return mkRes(SD_I18N.gemini, r, false, t("fail"));
+    const blocked = /not\s+available|unsupported\s+country|isn.?t\s+available\s+in\s+your\s+country/i.test(r.data) || [451].includes(r.status);
+    const cc = await getLandingCC();
+    return mkRes(SD_I18N.gemini, r, !blocked, blocked ? t("regionBlocked") : "", cc);
+  },
+  claude: async () => {
+    const r = await sd_req("https://claude.ai/");
+    if (!r.ok) return mkRes(SD_I18N.claude, r, false, t("fail"));
+    const blocked = /not\s+available|unsupported\s+country|unavailable\s+in\s+your\s+region/i.test(r.data) || [451].includes(r.status);
+    const challenged = r.status === 403 && getHeader(r.headers, "cf-mitigated");
+    const cc = await getLandingCC();
+    if (blocked) return mkRes(SD_I18N.claude, r, false, t("regionBlocked"), cc);
+    if (challenged) return mkRes(SD_I18N.claude, r, true, "Challenge", cc, "partial");
+    return mkRes(SD_I18N.claude, r, true, "", cc);
   },
   netflix: async () => {
     const check = async (id) => sd_req(`https://www.netflix.com/title/${id}`);
@@ -213,6 +234,20 @@ const SD_TESTS = {
     let cc = r.data.match(/\"countryCode\"\s*:\s*\"([A-Z]{2})\"/i)?.[1];
     if (!cc) cc = await getLandingCC();
     return mkRes(SD_I18N.disney, r, true, "", cc);
+  },
+  tiktok: async () => {
+    const r = await sd_req("https://www.tiktok.com/");
+    if (!r.ok) return mkRes(SD_I18N.tiktok, r, false, t("fail"));
+    const blocked = /not\s+available\s+in\s+your\s+(?:region|area|country)|service\s+unavailable/i.test(r.data) || [403, 451].includes(r.status);
+    const cc = await getLandingCC();
+    return mkRes(SD_I18N.tiktok, r, !blocked, blocked ? t("regionBlocked") : "", cc);
+  },
+  spotify: async () => {
+    const r = await sd_req("https://www.spotify.com/us/premium/");
+    if (!r.ok) return mkRes(SD_I18N.spotify, r, false, t("fail"));
+    const blocked = /not\s+available\s+in\s+your\s+country|currently\s+not\s+available/i.test(r.data) || [403, 451].includes(r.status);
+    const cc = await getLandingCC();
+    return mkRes(SD_I18N.spotify, r, !blocked, blocked ? t("regionBlocked") : "", cc);
   },
   chatgpt_web: async () => {
     const r = await sd_req("https://chatgpt.com/cdn-cgi/trace");
@@ -244,10 +279,18 @@ const SD_TESTS = {
 const SD_ALIAS = {
   yt: "youtube",
   youtube: "youtube",
+  ytpremium: "youtube",
+  "youtubepremium": "youtube",
+  gemini: "gemini",
+  claude: "claude",
   nf: "netflix",
   netflix: "netflix",
   disney: "disney",
   "disney+": "disney",
+  tiktok: "tiktok",
+  tt: "tiktok",
+  spotify: "spotify",
+  sp: "spotify",
   chatgpt: "chatgpt_app",
   gpt: "chatgpt_app",
   hbo: "hbo",
@@ -271,6 +314,12 @@ async function getLandingCC() {
 
 function mkRes(name, r, ok, tag, cc = "", state = null) {
   return { name, ok, cc: cc?.toUpperCase() || "", cost: r.cost, status: r.status, tag, state };
+}
+
+function getHeader(headers, name) {
+  if (!headers || !name) return "";
+  const key = Object.keys(headers).find((k) => k.toLowerCase() === String(name).toLowerCase());
+  return key ? headers[key] : "";
 }
 
 const CC_TO_CN = {
