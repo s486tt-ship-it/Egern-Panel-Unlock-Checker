@@ -15,8 +15,15 @@ const CONSTS = Object.freeze({
 
 const SD_STR = {
   "zh-Hans": {
-    panelTitle: "流媒体&AI服务解锁检测",
+    panelTitle: "解锁雷达",
     policy: "节点策略",
+    overview: "解锁概览",
+    aiServices: "AI 服务",
+    mediaServices: "流媒体",
+    available: "可用",
+    unavailable: "受限",
+    challenge: "验证",
+    latency: "延迟",
     unlocked: "已解锁",
     partialUnlocked: "部分解锁",
     notReachable: "不可达",
@@ -28,8 +35,15 @@ const SD_STR = {
     debug: "调试"
   },
   "zh-Hant": {
-    panelTitle: "流媒体&AI解锁侦测",
+    panelTitle: "解鎖雷達",
     policy: "节点策略",
+    overview: "解鎖概覽",
+    aiServices: "AI 服務",
+    mediaServices: "流媒體",
+    available: "可用",
+    unavailable: "受限",
+    challenge: "驗證",
+    latency: "延遲",
     unlocked: "已解锁",
     partialUnlocked: "部分解锁",
     notReachable: "不可达",
@@ -95,8 +109,8 @@ const CFG = {
   Timeout: ENV("Timeout", 12),
   BUDGET_SEC_RAW: ENV("BUDGET", 0),
   TW_FLAG_MODE: ENV("TW_FLAG_MODE", 1),
-  Icon: ENV("Icon", "") || ICON_PRESET_MAP[ENV("IconPreset", "gamecontroller")] || "gamecontroller.fill",
-  IconColor: ENV("IconColor", "#FF2D55"),
+  Icon: ENV("Icon", "") || ICON_PRESET_MAP[ENV("IconPreset", "bolt")] || "bolt.fill",
+  IconColor: ENV("IconColor", "#FF6B3D"),
   SD_STYLE: ENV("SD_STYLE", "icon"),
   SD_REGION_MODE: ENV("SD_REGION_MODE", "full"),
   SD_ICON_THEME: ENV("SD_ICON_THEME", "check"),
@@ -116,8 +130,8 @@ const SD_TIMEOUT_MS = Math.max(CONSTS.SD_MIN_TIMEOUT, (CFG.Timeout || 8) * 1000)
 const SD_ICONS = {
   lock: { full: "🔓", partial: "🔐", blocked: "🔒" },
   circle: { full: "⭕️", partial: "⛔️", blocked: "🚫" },
-  check: { full: "✅", partial: "❇️", blocked: "❎" }
-}[CFG.SD_ICON_THEME] || { full: "✅", partial: "❇️", blocked: "❎" };
+  check: { full: "🟢", partial: "🟡", blocked: "🔴" }
+}[CFG.SD_ICON_THEME] || { full: "🟢", partial: "🟡", blocked: "🔴" };
 
 const DEBUG_LINES = [];
 
@@ -171,9 +185,9 @@ async function sd_req(url, opts = {}) {
 }
 
 const SD_I18N = {
-  youTube: "YouTube Premium",
-  chatgpt: "ChatGPT Web",
-  chatgpt_app: "ChatGPT App",
+  youTube: "YouTube",
+  chatgpt: "ChatGPT",
+  chatgpt_app: "OpenAI API",
   gemini: "Gemini",
   claude: "Claude",
   netflix: "Netflix",
@@ -297,6 +311,11 @@ const SD_ALIAS = {
   max: "hbo"
 };
 
+const SERVICE_GROUPS = [
+  { titleKey: "aiServices", keys: ["gemini", "claude", "chatgpt_web", "chatgpt_app"] },
+  { titleKey: "mediaServices", keys: ["youtube", "netflix", "disney", "tiktok", "spotify", "hulu_us", "hbo"] }
+];
+
 async function getLandingCC() {
   const apis = ["http://ip-api.com/json", "https://api.ip.sb/geoip"];
   for (const u of apis) {
@@ -357,22 +376,32 @@ function renderLine({ name, ok, cc, cost, status, tag, state }) {
   const st = state ? state : (ok ? "full" : "blocked");
   const icon = SD_ICONS[st];
   const regionName = CC_TO_CN[cc] || cc || "-";
-  const regionText = regionName.trim();
-  const extras = [
-    (tag && (!/netflix/i.test(name) || CFG.SD_STYLE === "icon" || CFG.SD_ARROW)) ? tag : "",
-    CFG.SD_SHOW_LAT && cost ? `${cost}ms` : "",
-    CFG.SD_SHOW_HTTP && status ? `HTTP ${status}` : ""
-  ].filter(Boolean).join(" , ");
-  const sep = CFG.SD_ARROW ? "：" : " , ";
+  const primaryTag = tag === "Challenge" ? t("challenge") : tag;
+  const bits = [regionName];
+  if (primaryTag) bits.push(primaryTag);
+  if (CFG.SD_SHOW_LAT && cost) bits.push(`${cost}ms`);
+  if (CFG.SD_SHOW_HTTP && status && (!ok || status >= 300 || status === 401)) bits.push(`H${status}`);
+  return `${icon} ${name}  ${bits.filter(Boolean).join(" · ")}`;
+}
 
-  if (CFG.SD_STYLE === "text") {
-    const statusText = ok ? t("unlocked") : t("notReachable");
-    const base = `${name}: ${statusText}${sep}${regionText}`;
-    return extras ? `${base} , ${extras}` : base;
-  }
+function countStates(results) {
+  return Object.values(results).reduce((acc, item) => {
+    const st = item?.state ? item.state : (item?.ok ? "full" : "blocked");
+    if (st === "full") acc.full += 1;
+    else if (st === "partial") acc.partial += 1;
+    else acc.blocked += 1;
+    return acc;
+  }, { full: 0, partial: 0, blocked: 0 });
+}
 
-  const base = `${icon} ${name}${sep}${regionText}`;
-  return extras ? `${base} , ${extras}` : base;
+function summarizeRegions(results) {
+  const map = {};
+  Object.values(results).forEach((item) => {
+    if (!item?.cc) return;
+    map[item.cc] = (map[item.cc] || 0) + 1;
+  });
+  const top = Object.entries(map).sort((a, b) => b[1] - a[1])[0];
+  return top ? (CC_TO_CN[top[0]] || top[0]) : "-";
 }
 
 async function run() {
@@ -422,10 +451,28 @@ async function run() {
   await Promise.race([Promise.all(threads), new Promise((resolve) => setTimeout(resolve, BUDGET_MS))]);
 
   const policyName = await getPolicy;
-  const lines = svcs.map((k) => (results[k] ? renderLine(results[k]) : `${t("timeout")}: ${k}`));
   const parts = [];
-  if (policyName) parts.push(`${t("policy")}: ${policyName}\n`);
-  parts.push(...lines);
+  const summary = countStates(results);
+  const dominantRegion = summarizeRegions(results);
+  const avgLatency = (() => {
+    const costs = Object.values(results).map((item) => item?.cost || 0).filter(Boolean);
+    if (!costs.length) return "";
+    return `${Math.round(costs.reduce((sum, val) => sum + val, 0) / costs.length)}ms`;
+  })();
+
+  parts.push(`▣ ${t("overview")}`);
+  parts.push(`🟢 ${summary.full}  🟡 ${summary.partial}  🔴 ${summary.blocked}`);
+  parts.push(`${t("available")} ${summary.full + summary.partial}/${svcs.length} · ${dominantRegion}${avgLatency ? ` · ${t("latency")} ${avgLatency}` : ""}`);
+
+  if (policyName) parts.push(`${t("policy")}: ${policyName}`);
+
+  for (const group of SERVICE_GROUPS) {
+    const lines = group.keys
+      .filter((k) => svcs.includes(k))
+      .map((k) => (results[k] ? renderLine(results[k]) : `🔴 ${SD_I18N[k] || k}  ${t("timeout")}`));
+    if (!lines.length) continue;
+    parts.push("", `◈ ${t(group.titleKey)}`, ...lines);
+  }
 
   if (CFG.LOG_TO_PANEL && DEBUG_LINES.length) {
     parts.push("\n-- DEBUG --", ...DEBUG_LINES.slice(-5));
