@@ -9,32 +9,16 @@
 const CONSTS = Object.freeze({
   SD_MIN_TIMEOUT: 2000,
   LOG_RING_MAX: 50,
-  BUDGET_HARD_MS: 18000,
+  BUDGET_HARD_MS: 12000,
   BUDGET_SOFT_GUARD_MS: 260
 });
 
 const SD_STR = {
   "zh-Hans": {
     panelTitle: "解锁雷达",
-    policy: "节点策略",
-    overview: "解锁概览",
-    network: "网络质量",
-    dns: "DNS 诊断",
     aiServices: "AI 服务",
     mediaServices: "流媒体",
-    available: "可用",
-    unavailable: "受限",
     challenge: "验证",
-    latency: "延迟",
-    speed: "网速",
-    domestic: "国内",
-    global: "国外",
-    dnsResolver: "解析器",
-    dnsEgress: "DNS 出口",
-    dnsLeak: "泄漏判断",
-    noLeak: "未见明显泄漏",
-    leakRisk: "可能泄漏",
-    unknown: "未知",
     unlocked: "已解锁",
     partialUnlocked: "部分解锁",
     notReachable: "不可达",
@@ -47,25 +31,9 @@ const SD_STR = {
   },
   "zh-Hant": {
     panelTitle: "解鎖雷達",
-    policy: "节点策略",
-    overview: "解鎖概覽",
-    network: "網路品質",
-    dns: "DNS 診斷",
     aiServices: "AI 服務",
     mediaServices: "流媒體",
-    available: "可用",
-    unavailable: "受限",
     challenge: "驗證",
-    latency: "延遲",
-    speed: "網速",
-    domestic: "國內",
-    global: "國外",
-    dnsResolver: "解析器",
-    dnsEgress: "DNS 出口",
-    dnsLeak: "洩漏判斷",
-    noLeak: "未見明顯洩漏",
-    leakRisk: "可能洩漏",
-    unknown: "未知",
     unlocked: "已解锁",
     partialUnlocked: "部分解锁",
     notReachable: "不可达",
@@ -128,7 +96,7 @@ function ENV(key, defVal) {
 }
 
 const CFG = {
-  Timeout: ENV("Timeout", 15),
+  Timeout: ENV("Timeout", 12),
   BUDGET_SEC_RAW: ENV("BUDGET", 0),
   TW_FLAG_MODE: ENV("TW_FLAG_MODE", 1),
   Icon: ENV("Icon", "") || ICON_PRESET_MAP[ENV("IconPreset", "bolt")] || "bolt.fill",
@@ -338,13 +306,6 @@ const SERVICE_GROUPS = [
   { titleKey: "mediaServices", keys: ["youtube", "netflix", "disney", "tiktok", "spotify", "hulu_us", "hbo"] }
 ];
 
-const NET_ENDPOINTS = {
-  domesticLatency: "https://www.baidu.com/favicon.ico",
-  globalLatency: "https://1.1.1.1/cdn-cgi/trace",
-  domesticSpeed: "https://cdn.staticfile.net/vue/3.5.13/vue.global.prod.js",
-  globalSpeed: "https://speed.cloudflare.com/__down?bytes=262144"
-};
-
 async function getLandingCC() {
   const apis = ["http://ip-api.com/json", "https://api.ip.sb/geoip"];
   for (const u of apis) {
@@ -368,106 +329,6 @@ function getHeader(headers, name) {
   if (!headers || !name) return "";
   const key = Object.keys(headers).find((k) => k.toLowerCase() === String(name).toLowerCase());
   return key ? headers[key] : "";
-}
-
-function byteLen(data) {
-  if (!data) return 0;
-  try {
-    if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(String(data)).length;
-  } catch {}
-  return String(data).length;
-}
-
-function formatSpeed(bytes, ms) {
-  if (!bytes || !ms) return t("unknown");
-  const mbps = (bytes * 8) / (ms / 1000) / 1000 / 1000;
-  if (mbps >= 100) return `${mbps.toFixed(0)} Mbps`;
-  if (mbps >= 10) return `${mbps.toFixed(1)} Mbps`;
-  return `${mbps.toFixed(2)} Mbps`;
-}
-
-function getCountryHints(cc) {
-  const map = {
-    HK: ["Hong Kong", "香港"],
-    TW: ["Taiwan", "台湾", "台灣"],
-    US: ["United States", "USA", "US", "美国", "美國"],
-    JP: ["Japan", "日本"],
-    SG: ["Singapore", "新加坡"],
-    KR: ["Korea", "South Korea", "韩国", "韓國"],
-    GB: ["United Kingdom", "UK", "Britain", "英国", "英國"],
-    CA: ["Canada", "加拿大"],
-    DE: ["Germany", "德国", "德國"],
-    FR: ["France", "法国", "法國"],
-    NL: ["Netherlands", "荷兰", "荷蘭"],
-    AU: ["Australia", "澳洲"],
-    TH: ["Thailand", "泰国", "泰國"],
-    MY: ["Malaysia", "马来西亚", "馬來西亞"]
-  };
-  return map[cc] || [cc];
-}
-
-async function probeLatency(url, headers = {}) {
-  const r = await sd_req(url, { headers });
-  return { ok: r.ok, cost: r.cost, status: r.status };
-}
-
-async function probeSpeed(url, headers = {}) {
-  const r = await sd_req(url, {
-    headers: {
-      Range: "bytes=0-262143",
-      "Cache-Control": "no-cache",
-      Pragma: "no-cache",
-      ...headers
-    }
-  });
-  return {
-    ok: r.ok,
-    cost: r.cost,
-    status: r.status,
-    speed: formatSpeed(byteLen(r.data), r.cost)
-  };
-}
-
-async function runNetworkDiagnostics() {
-  const [domLat, gloLat, domSpeed, gloSpeed] = await Promise.all([
-    probeLatency(NET_ENDPOINTS.domesticLatency),
-    probeLatency(NET_ENDPOINTS.globalLatency),
-    probeSpeed(NET_ENDPOINTS.domesticSpeed),
-    probeSpeed(NET_ENDPOINTS.globalSpeed)
-  ]);
-  return { domLat, gloLat, domSpeed, gloSpeed };
-}
-
-async function runDnsDiagnostics() {
-  const [dnsR, traceR] = await Promise.all([
-    sd_req("https://edns.ip-api.com/json"),
-    sd_req("https://1.1.1.1/cdn-cgi/trace")
-  ]);
-
-  let resolverIp = "";
-  let resolverGeo = "";
-  if (dnsR.ok) {
-    try {
-      const j = JSON.parse(dnsR.data);
-      resolverIp = j?.dns?.ip || "";
-      resolverGeo = j?.dns?.geo || "";
-    } catch {}
-  }
-
-  const egressCc = traceR.ok ? (traceR.data.match(/loc=([A-Z]{2})/)?.[1] || "") : "";
-  const egressRegion = CC_TO_CN[egressCc] || egressCc || t("unknown");
-  const leak = (() => {
-    if (!resolverGeo || !egressCc) return t("unknown");
-    const hints = getCountryHints(egressCc);
-    return hints.some((hint) => resolverGeo.toLowerCase().includes(String(hint).toLowerCase())) ? t("noLeak") : t("leakRisk");
-  })();
-
-  return {
-    resolverIp: resolverIp || "-",
-    resolverGeo: resolverGeo || t("unknown"),
-    egressRegion,
-    leak
-  };
 }
 
 const CC_TO_CN = {
@@ -513,36 +374,8 @@ function renderLine({ name, ok, cc, cost, status, tag, state }) {
   return `${icon} ${name}  ${bits.filter(Boolean).join(" · ")}`;
 }
 
-function countStates(results) {
-  return Object.values(results).reduce((acc, item) => {
-    const st = item?.state ? item.state : (item?.ok ? "full" : "blocked");
-    if (st === "full") acc.full += 1;
-    else if (st === "partial") acc.partial += 1;
-    else acc.blocked += 1;
-    return acc;
-  }, { full: 0, partial: 0, blocked: 0 });
-}
-
-function summarizeRegions(results) {
-  const map = {};
-  Object.values(results).forEach((item) => {
-    if (!item?.cc) return;
-    map[item.cc] = (map[item.cc] || 0) + 1;
-  });
-  const top = Object.entries(map).sort((a, b) => b[1] - a[1])[0];
-  return top ? (CC_TO_CN[top[0]] || top[0]) : "-";
-}
-
 async function run() {
   log("Start");
-
-  const getPolicy = new Promise((resolve) => {
-    if (typeof $httpAPI !== "function") return resolve("");
-    $httpAPI("GET", "/v1/requests/recent", null, (data) => {
-      const hit = (data?.requests || []).find((i) => i.policyName && i.URL && !/^http:\/\/(127|192|10)/.test(i.URL));
-      resolve(hit?.policyName || "");
-    });
-  });
 
   let svcs = [];
   try {
@@ -562,8 +395,6 @@ async function run() {
 
   if (!svcs.length) svcs = Object.keys(SD_TESTS);
   svcs = [...new Set(svcs)];
-  const networkPromise = runNetworkDiagnostics().catch(() => null);
-  const dnsPromise = runDnsDiagnostics().catch(() => null);
 
   const results = {};
   const queue = [...svcs];
@@ -581,40 +412,7 @@ async function run() {
   const threads = Array(Math.min(svcs.length, CFG.SD_CONCURRENCY)).fill(null).map(runWorker);
   await Promise.race([Promise.all(threads), new Promise((resolve) => setTimeout(resolve, BUDGET_MS))]);
 
-  const policyName = await getPolicy;
   const parts = [];
-  const summary = countStates(results);
-  const dominantRegion = summarizeRegions(results);
-  const network = await networkPromise;
-  const dns = await dnsPromise;
-  const avgLatency = (() => {
-    const costs = Object.values(results).map((item) => item?.cost || 0).filter(Boolean);
-    if (!costs.length) return "";
-    return `${Math.round(costs.reduce((sum, val) => sum + val, 0) / costs.length)}ms`;
-  })();
-
-  parts.push(`▣ ${t("overview")}`);
-  parts.push(`🟢 ${summary.full}  🟡 ${summary.partial}  🔴 ${summary.blocked}`);
-  parts.push(`${t("available")} ${summary.full + summary.partial}/${svcs.length} · ${dominantRegion}${avgLatency ? ` · ${t("latency")} ${avgLatency}` : ""}`);
-
-  if (policyName) parts.push(`${t("policy")}: ${policyName}`);
-
-  if (network) {
-    parts.push("");
-    parts.push(`◈ ${t("network")}`);
-    parts.push(`🏠 ${t("domestic")}${t("latency")}  ${network.domLat?.ok ? `${network.domLat.cost}ms` : t("timeout")}`);
-    parts.push(`🌍 ${t("global")}${t("latency")}  ${network.gloLat?.ok ? `${network.gloLat.cost}ms` : t("timeout")}`);
-    parts.push(`🏠 ${t("domestic")}${t("speed")}  ${network.domSpeed?.ok ? network.domSpeed.speed : t("timeout")}`);
-    parts.push(`🌍 ${t("global")}${t("speed")}  ${network.gloSpeed?.ok ? network.gloSpeed.speed : t("timeout")}`);
-  }
-
-  if (dns) {
-    parts.push("");
-    parts.push(`◈ ${t("dns")}`);
-    parts.push(`🧭 ${t("dnsEgress")}  ${dns.egressRegion}`);
-    parts.push(`🧩 ${t("dnsResolver")}  ${dns.resolverIp} · ${dns.resolverGeo}`);
-    parts.push(`🛡 ${t("dnsLeak")}  ${dns.leak}`);
-  }
 
   for (const group of SERVICE_GROUPS) {
     const lines = group.keys
